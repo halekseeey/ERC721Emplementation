@@ -1,4 +1,4 @@
-# ERC721 Emplementation
+# ERC721 implementation
 
 This project implemented the MyContract contract, which supports the ERC721 standard. The contract also implemented three minting functions:
 mint - payble, accepts the number of tokens that need to be minted
