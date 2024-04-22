@@ -149,57 +149,178 @@ describe("MyToken", function () {
   });
 
   describe("signedMint", function () {
-    const signature = "PASSWORD";
     it("Should mint by user", async function () {
-      const { myContract, user } = await loadFixture(deployMyToken);
-      await myContract
-        .connect(user)
-        .signedMint(ethers.encodeBytes32String(signature));
-      expect(await myContract.ownerOf(1)).to.eq(user);
+      const { myContract, owner, user } = await loadFixture(deployMyToken);
+      const amount = MAX_MINT_PER_TX;
+      const nonce = 1;
+      const hash = ethers.solidityPackedKeccak256(
+        ["address", "uint256", "uint256", "address"],
+        [user.address, amount, nonce, await myContract.getAddress()]
+      );
+
+      const messageHashBin = ethers.getBytes(hash);
+
+      const signature = await owner.signMessage(messageHashBin);
+
+      await myContract.connect(user).signedMint(amount, nonce, signature);
+      expect(await myContract.ownerOf(amount)).to.eq(user);
     });
     it("Should mint certain number of tokens", async function () {
-      const { myContract, user } = await loadFixture(deployMyToken);
-      await myContract
-        .connect(user)
-        .signedMint(ethers.encodeBytes32String(signature));
-      expect(await myContract.currentTokenId()).to.eq(1);
+      const { myContract, owner, user } = await loadFixture(deployMyToken);
+      const amount = MAX_MINT_PER_TX;
+      const nonce = 1;
+      const hash = ethers.solidityPackedKeccak256(
+        ["address", "uint256", "uint256", "address"],
+        [user.address, amount, nonce, await myContract.getAddress()]
+      );
+
+      const messageHashBin = ethers.getBytes(hash);
+
+      const signature = await owner.signMessage(messageHashBin);
+
+      await myContract.connect(user).signedMint(amount, nonce, signature);
+      expect(await myContract.currentTokenId()).to.eq(3);
     });
     it("The user's balance should increase", async function () {
-      const { myContract, user } = await loadFixture(deployMyToken);
-      const oldBalance = await myContract.balanceOf(user);
-      await myContract
-        .connect(user)
-        .signedMint(ethers.encodeBytes32String(signature));
+      const { myContract, owner, user } = await loadFixture(deployMyToken);
+      const amount = MAX_MINT_PER_TX;
+      const nonce = 1;
+      const hash = ethers.solidityPackedKeccak256(
+        ["address", "uint256", "uint256", "address"],
+        [user.address, amount, nonce, await myContract.getAddress()]
+      );
 
-      expect(await myContract.balanceOf(user)).to.eq(BigInt(1) + oldBalance);
+      const messageHashBin = ethers.getBytes(hash);
+
+      const signature = await owner.signMessage(messageHashBin);
+
+      await myContract.connect(user).signedMint(amount, nonce, signature);
+      expect(await myContract.balanceOf(user)).to.eq(amount);
+    });
+    it("Attempt to sent with same signature", async function () {
+      const { myContract, owner, user } = await loadFixture(deployMyToken);
+      const amount = MAX_MINT_PER_TX;
+      const nonce = 1;
+      const hash = ethers.solidityPackedKeccak256(
+        ["address", "uint256", "uint256", "address"],
+        [user.address, amount, nonce, await myContract.getAddress()]
+      );
+
+      const messageHashBin = ethers.getBytes(hash);
+
+      const signature = await owner.signMessage(messageHashBin);
+
+      await myContract.connect(user).signedMint(amount, nonce, signature);
+
+      const failedTx = myContract
+        .connect(user)
+        .signedMint(amount, nonce, signature);
+
+      await expect(failedTx).revertedWith("Signature already used");
+    });
+    it("Attempt to sent with same nonce", async function () {
+      const { myContract, owner, user } = await loadFixture(deployMyToken);
+      const amount = MAX_MINT_PER_TX;
+      const nonce = 1;
+      const hash = ethers.solidityPackedKeccak256(
+        ["address", "uint256", "uint256", "address"],
+        [user.address, amount, nonce, await myContract.getAddress()]
+      );
+
+      const messageHashBin = ethers.getBytes(hash);
+
+      const signature = await owner.signMessage(messageHashBin);
+
+      await myContract.connect(user).signedMint(amount, nonce, signature);
+
+      const newHash = ethers.solidityPackedKeccak256(
+        ["address", "uint256", "uint256", "address"],
+        [user.address, amount, nonce + 1, await myContract.getAddress()]
+      );
+
+      const newMessageHashBin = ethers.getBytes(newHash);
+
+      const newSignature = await owner.signMessage(newMessageHashBin);
+
+      const failedTx = myContract
+        .connect(user)
+        .signedMint(amount, nonce, newSignature);
+
+      await expect(failedTx).revertedWith("Nonce already used");
+    });
+    it("Attempt to mint more than the mint limit", async function () {
+      const { myContract, owner, user } = await loadFixture(deployMyToken);
+      const amount = MAX_MINT_PER_TX + 1;
+      const nonce = 1;
+      const hash = ethers.solidityPackedKeccak256(
+        ["address", "uint256", "uint256", "address"],
+        [user.address, amount, nonce, await myContract.getAddress()]
+      );
+
+      const messageHashBin = ethers.getBytes(hash);
+
+      const signature = await owner.signMessage(messageHashBin);
+
+      const failedTx = myContract
+        .connect(user)
+        .signedMint(amount, nonce, signature);
+
+      await expect(failedTx).revertedWith(
+        "Exceeds maximum tokens per transaction"
+      );
     });
 
-    it("attempt to mint with the same signature", async function () {
+    it("Attempt to mint with incorrect signature", async function () {
       const { myContract, user } = await loadFixture(deployMyToken);
+      const amount = MAX_MINT_PER_TX;
+      const nonce = 1;
+      const messageHashBin = ethers.getBytes(
+        ethers.encodeBytes32String("PASSWORD")
+      );
 
-      await myContract
+      const signature = await user.signMessage(messageHashBin);
+
+      const failedTx = myContract
         .connect(user)
-        .signedMint(ethers.encodeBytes32String(signature));
+        .signedMint(amount, nonce, signature);
 
-      await expect(
-        myContract
-          .connect(user)
-          .signedMint(ethers.encodeBytes32String(signature))
-      ).to.be.revertedWith("Signature already used");
+      await expect(failedTx).revertedWith("Invalid signature!");
     });
-
-    it("attempt to mint more then the max supply", async function () {
+    it("Attempt to mint with incorrect signature length", async function () {
       const { myContract, user } = await loadFixture(deployMyToken);
+      const amount = MAX_MINT_PER_TX;
+      const nonce = 1;
+
+      const failedTx = myContract
+        .connect(user)
+        .signedMint(amount, nonce, ethers.encodeBytes32String("PASSWORD"));
+
+      await expect(failedTx).revertedWith("Incorrect signature length");
+    });
+    it("Attempt to mint more then the max supply", async function () {
+      const { myContract, owner, user } = await loadFixture(deployMyToken);
       for (let i = 0; i < MAX_SUPPLY; i++) {
-        await myContract
-          .connect(user)
-          .signedMint(ethers.encodeBytes32String(signature + i));
+        await myContract.connect(user).mint(1, { value: TOKEN_PRICE });
       }
-      await expect(
-        myContract
-          .connect(user)
-          .signedMint(ethers.encodeBytes32String(signature))
-      ).to.be.revertedWith("Max supply reached");
+
+      const amount = MAX_MINT_PER_TX;
+      const nonce = 1;
+      const hash = ethers.solidityPackedKeccak256(
+        ["address", "uint256", "uint256", "address"],
+        [user.address, amount, nonce, await myContract.getAddress()]
+      );
+
+      const messageHashBin = ethers.getBytes(hash);
+
+      const signature = await owner.signMessage(messageHashBin);
+
+      const failedTx = myContract
+        .connect(user)
+        .signedMint(amount, nonce, signature);
+
+      await expect(failedTx).to.be.revertedWith(
+        "Exceeds maximum supply of tokens"
+      );
     });
   });
 

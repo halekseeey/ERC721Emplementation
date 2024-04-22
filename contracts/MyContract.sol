@@ -5,6 +5,11 @@ import "./ERC721.sol";
 
 contract MyContract is ERC721 {
     uint public currentTokenId;
+    //who can sign transactions
+    address private owner;
+
+    //nonce is already used
+    mapping(address => mapping(uint => bool)) nonces;
 
     // Maximum number of tokens
     uint256 public immutable MAX_SUPPLY;
@@ -34,14 +39,35 @@ contract MyContract is ERC721 {
         }
     }
 
-    function signedMint(bytes memory signature) public {
+    function signedMint(uint256 numberOfTokens, uint nonce, bytes memory signature) public {
+        require(numberOfTokens <= MAX_MINT_PER_TX, "Exceeds maximum tokens per transaction");
         require(!usedSignatures[signature], "Signature already used");
+        require(!nonces[msg.sender][nonce], "Nonce already used");
+        require(currentTokenId + numberOfTokens <= MAX_SUPPLY, "Exceeds maximum supply of tokens");
+
+        //form a message
+        bytes32 message = withPrefix(keccak256(abi.encodePacked(
+            msg.sender,
+            numberOfTokens,
+            nonce,
+            address(this)
+        )));
+
+        //check that the message is signed by the owner
+        require(
+            recoverSigner(message, signature) == owner, "Invalid signature!"
+        );
+    
         //record that this signature is used
         usedSignatures[signature] = true;
-        require(currentTokenId < MAX_SUPPLY, "Max supply reached");
+        //record that this nonce is used
+        nonces[msg.sender][nonce] = true;
 
-        currentTokenId++;
-        _safeMint(msg.sender, currentTokenId);
+        //mint each token one by one
+        for (uint256 i = 0; i < numberOfTokens; i++) {
+            currentTokenId++;
+            _safeMint(msg.sender, currentTokenId);
+        }
     }
 
     function mintSet() public payable {
@@ -70,15 +96,40 @@ contract MyContract is ERC721 {
         MAX_MINT_PER_TX = _MAX_MINT_PER_TX;
         TOKEN_PRICE = _TOKEN_PRICE;
         SET_PRICE = _SET_PRICE;
+        owner = msg.sender;
     }
 
     function _baseURI() internal pure override returns(string memory) {
         return "ipfs://halekseeey/tokens/";
     }
 
-    function tokenURI(
-        uint tokenId
-    ) public view override(ERC721) returns (string memory) {
-        return super.tokenURI(tokenId);
+    function recoverSigner(bytes32 message, bytes memory signature) private pure returns(address) {
+        (uint8 v, bytes32 r, bytes32 s) = splitSignature(signature);
+
+        return ecrecover(message, v, r, s);
+    }
+
+    function splitSignature(bytes memory signature) private pure returns(uint8 v, bytes32 r, bytes32 s) {
+        //checking the correctness of the transmitted data
+        require(signature.length == 65, 'Incorrect signature length');
+
+        assembly {
+            r := mload(add(signature, 32))
+
+            s := mload(add(signature, 64))
+
+            v := byte(0, mload(add(signature, 96)))
+        }
+
+        return(v, r, s);
+    }
+
+    function withPrefix(bytes32 _hash) private pure returns(bytes32) {
+        return keccak256(
+            abi.encodePacked(
+                "\x19Ethereum Signed Message:\n32",
+                _hash
+            )
+        );
     }
 }

@@ -3,7 +3,7 @@
 This project implemented the MyContract contract, which supports the ERC721 standard. The contract also implemented three minting functions:
 
 - mint - payble, accepts the number of tokens that need to be minted
-- signedMint - accepts a unique signature and sends one token to the user
+- signedMint - accepts the number of tokens, nonce, unique signature that signed by owner
 - setMint - mint for user once a set of 6 tokens
 
 All contracts can be seen in the directory /contracts
